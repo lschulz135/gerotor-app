@@ -1,4 +1,5 @@
 import numpy as np
+from fractions import Fraction
 
 def appliquer_rotation(X, Y, phi_deg):
     if phi_deg == 0: return np.array(X), np.array(Y)
@@ -7,15 +8,20 @@ def appliquer_rotation(X, Y, phi_deg):
     return X_arr * np.cos(phi_rad) - Y_arr * np.sin(phi_rad), X_arr * np.sin(phi_rad) + Y_arr * np.cos(phi_rad)
 
 # ==========================================
-# 1. MÉTHODE HYBRIDE (Stator + Rotor)
+# 1. MÉTHODE HYBRIDE (Basée sur R_prim)
 # ==========================================
-def modele_hybride(N_lobes, e_excent, d_param, nb_points):
+def modele_hybride(N_lobes, R_prim, d_param, nb_points):
     m = int(N_lobes)
     n = m - 1
-    me = m * e_excent
+    
+    # --- L'excentricité est mathématiquement induite ---
+    e_excent = R_prim / m  
+    
+    me = R_prim # Car m * e_excent = R_prim
     b = e_excent - d_param
     pts_par_lobe = max(10, int(nb_points) // (2 * m)) 
     
+    # --- PROFIL STATOR ---
     phi1_max = np.pi * d_param / me 
     phi1_min = -np.pi * d_param / me
     phi1 = np.linspace(phi1_min, phi1_max, pts_par_lobe)
@@ -38,6 +44,7 @@ def modele_hybride(N_lobes, e_excent, d_param, nb_points):
         y_stator_full.extend(x_stator_single * sin_a + y_stator_single * cos_a)
     x_stator_full.append(x_stator_full[0]); y_stator_full.append(y_stator_full[0])
 
+    # --- PROFIL ROTOR ---
     phi1_Int_max = np.pi * d_param / (n * e_excent)
     phi1_Int_min = -np.pi * d_param / (n * e_excent)
     phi1_Int = np.linspace(phi1_Int_min, phi1_Int_max, pts_par_lobe)
@@ -63,15 +70,11 @@ def modele_hybride(N_lobes, e_excent, d_param, nb_points):
     return np.array(x_stator_full), np.array(y_stator_full), np.array(x_rotor_full), np.array(y_rotor_full)
 
 # ==========================================
-# 2. MÉTHODE TROCHOÏDE (Enveloppe lisse)
+# 2. MÉTHODE TROCHOÏDE 
 # ==========================================
 def modele_trochoide(N_lobes, R_prim, d_traceur, rho_enveloppe, nb_points, type_trochoide="Hypocycloïde"):
     K = 1 if type_trochoide == "Épitrochoïde" else -1
-    
-    # Règle de signe pour l'enveloppe : 
-    # K=-1 -> rho négatif | K=1 -> rho positif (calcul automatique)
     rho_calc = K * abs(rho_enveloppe)
-    
     n1 = int(N_lobes)
     n2 = n1 + K
     

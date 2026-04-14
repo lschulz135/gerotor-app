@@ -103,9 +103,9 @@ class GeorotorApp(ctk.CTk):
             self.sous_mode_var.set("Hypocycloïde")
             ctk.CTkSegmentedButton(self.sidebar, variable=self.sous_mode_var, values=["Hypocycloïde", "Épitrochoïde"], command=lambda _: self.generer_et_afficher()).pack(pady=10, fill="x", padx=5)
 
+        # --- MÀJ CONFIGS : L'excentricité de la méthode hybride est remplacée par R_prim ---
         configs = {
-            "Hybride": [("Géométrie", [("N_lobes", "Lobes stator", 8, 1), ("e_excent", "Excentricité (e)", 1.5, 0.25), ("d_param", "Paramètre (d)", 1.2, 0.1)]), ("Résolution", [("nb_points", "Nb de points", 2000, 200)])],
-            # Configuration Trochoïde mise à jour : e_excent devient d_traceur
+            "Hybride": [("Géométrie", [("N_lobes", "Lobes stator", 8, 1), ("R_prim", "R. Générateur (R)", 12.0, 0.5), ("d_param", "Paramètre (d)", 1.2, 0.1)]), ("Résolution", [("nb_points", "Nb de points", 2000, 200)])],
             "Trochoïde": [("Géométrie", [("N_lobes", "Dents Stator (N)", 6, 1), ("R_prim", "R. Primitif (R)", 22.0, 0.5), ("d_traceur", "Dist. traceur (d)", 3, 0.25), ("rho_env", "Enveloppe (\u03C1)", 4.0, 0.1)]), ("Résolution", [("nb_points", "Nb de points", 3000, 100)])],
             "Paramétrique": [("Globaux", [("N_lobes", "Nb de cavités", 5, 1), ("R_prim", "Rayon primitif", 13.0, 0.5), ("R_ext", "Rayon extérieur", 10.0, 0.5), ("phi_deg", "Angle (°)", 0.0, 5.0)]), ("Spécifiques", [("r_cercle", "Rayon r (Circ)", 5.0, 0.5), ("a_ell", "Prof a (Ell)", 5.0, 0.5), ("b_ell", "Largeur b (Ell)", 4.0, 0.5), ("A_sin", "Ampli A (Sin)", 5.0, 0.5), ("T_sin", "Période T (Sin)", 150.0, 1.0)]), ("Résolution", [("nb_points", "Nb de points", 2000, 100)])]
         }
@@ -135,13 +135,21 @@ class GeorotorApp(ctk.CTk):
             self.titre_dynamique.configure(text=titre_full)
 
             if methode == "Hybride":
-                X, Y, X_rotor, Y_rotor = modeles.modele_hybride(self.inputs['N_lobes'].get(), self.inputs['e_excent'].get(), self.inputs['d_param'].get(), self.inputs['nb_points'].get())
-                self.parametres_actifs = {"Mode": "Hybride", "Lobes": self.inputs['N_lobes'].get(), "Excentricité": self.inputs['e_excent'].get()}
+                N_val = self.inputs['N_lobes'].get()
+                R_val = self.inputs['R_prim'].get()
+                d_val = self.inputs['d_param'].get()
+                pts = self.inputs['nb_points'].get()
+                
+                # L'excentricité est calculée pour l'exportation et l'affichage
+                e_calc = R_val / N_val 
+                
+                X, Y, X_rotor, Y_rotor = modeles.modele_hybride(N_val, R_val, d_val, pts)
+                self.parametres_actifs = {"Mode": "Hybride", "Lobes": N_val, "R_générateur": R_val, "Excentricité induite": e_calc, "Paramètre d": d_val}
             
             elif methode == "Trochoïde":
                 N = self.inputs['N_lobes'].get()
                 R_p = self.inputs['R_prim'].get()
-                d_t = self.inputs['d_traceur'].get()  # Remplacé ici
+                d_t = self.inputs['d_traceur'].get()
                 rho_env = self.inputs['rho_env'].get()
                 pts = self.inputs['nb_points'].get()
                 
@@ -161,7 +169,6 @@ class GeorotorApp(ctk.CTk):
             self.ax_profil.clear(); self.ax_schema.clear()
             couleur_stator = 'darkorchid' if methode == "Paramétrique" else ('black' if methode == "Trochoïde" else 'red')
             
-            # --- DESSIN DU PROFIL ---
             if X_gen is not None:
                 self.ax_profil.plot(X_gen, Y_gen, 'k--', alpha=0.4, label="Génératrice")
                 self.ax_schema.plot(X_gen, Y_gen, 'k--', alpha=0.3)
@@ -171,12 +178,19 @@ class GeorotorApp(ctk.CTk):
             self.ax_profil.fill(X, Y, color=couleur_stator, alpha=0.15)
             self.ax_profil.plot(0, 0, 'ko', markersize=4)
 
+            # --- TRACÉ DU ROTOR ET DE L'EXCENTRICITÉ ---
             if X_rotor is not None:
-                e_val = float(self.inputs['e_excent'].get())
+                # Détermination dynamique de l'excentricité selon la méthode active
+                if methode == "Hybride":
+                    e_val = self.inputs['R_prim'].get() / self.inputs['N_lobes'].get()
+                else:
+                    e_val = float(self.inputs['e_excent'].get())
+
                 self.ax_profil.plot(X_rotor + e_val, Y_rotor, color='blue', lw=2, label="Rotor")
                 self.ax_profil.fill(X_rotor + e_val, Y_rotor, color='blue', alpha=0.15)
                 self.ax_profil.plot(e_val, 0, 'bo', markersize=4)
-                self.ax_profil.plot([0, e_val], [0, 0], 'g--', lw=1.5, label=f"e = {e_val}")
+                # Affichage de la valeur induite de e sur le graphique
+                self.ax_profil.plot([0, e_val], [0, 0], 'g--', lw=1.5, label=f"e = {e_val:.3f}")
 
             self.ax_profil.axis('equal'); self.ax_profil.grid(True, linestyle=':', alpha=0.6)
             self.ax_profil.legend(loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=3, frameon=False, fontsize=10)
@@ -186,6 +200,7 @@ class GeorotorApp(ctk.CTk):
             th = np.linspace(0, 2*np.pi, 200)
             
             if 'R_prim' in self.inputs: 
+                # Hybride récupère automatiquement le tracé de ce cercle bleu !
                 self.ax_schema.plot(self.inputs['R_prim'].get()*np.cos(th), self.inputs['R_prim'].get()*np.sin(th), 'b--', alpha=0.4, label="R_primitif (R)")
             if 'R_ext' in self.inputs: 
                 self.ax_schema.plot(self.inputs['R_ext'].get()*np.cos(th), self.inputs['R_ext'].get()*np.sin(th), 'r--', alpha=0.4, label="R_extérieur")
@@ -193,13 +208,12 @@ class GeorotorApp(ctk.CTk):
             if methode == "Trochoïde":
                 R_p = self.inputs['R_prim'].get()
                 N_val = self.inputs['N_lobes'].get()
-                d_val = self.inputs['d_traceur'].get()  # Remplacé ici
+                d_val = self.inputs['d_traceur'].get()
                 
                 r_r = R_p / N_val
                 centre_r = R_p - r_r if sm == "Hypocycloïde" else R_p + r_r
                 
                 self.ax_schema.plot(centre_r + r_r*np.cos(th), r_r*np.sin(th), 'g--', alpha=0.5, label="r_roulant calculé")
-                # Le label graphique de l'axe est bien mis à jour
                 self.ax_schema.plot([centre_r, centre_r + d_val], [0, 0], 'g-', lw=2, label="Distance traceur (d)")
                 self.ax_schema.plot(centre_r, 0, 'go', markersize=4)
 
