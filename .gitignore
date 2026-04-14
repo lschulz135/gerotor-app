@@ -1,0 +1,18 @@
+# Caches Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environnements virtuels
+venv/
+env/
+.env/
+
+# Fichiers générés par l'utilisateur
+*.csv
+*.step
+*.stp
+
+# Fichiers OS
+.DS_Store
+Thumbs.db
