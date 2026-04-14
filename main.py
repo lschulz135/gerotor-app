@@ -105,8 +105,8 @@ class GeorotorApp(ctk.CTk):
 
         configs = {
             "Hybride": [("Géométrie", [("N_lobes", "Lobes stator", 8, 1), ("e_excent", "Excentricité (e)", 1.5, 0.25), ("d_param", "Paramètre (d)", 1.2, 0.1)]), ("Résolution", [("nb_points", "Nb de points", 2000, 200)])],
-            # Configuration Trochoïde mise à jour (N_lobes, R_prim, Excentricité)
-            "Trochoïde": [("Géométrie", [("N_lobes", "Dents Stator (N)", 7, 1), ("R_prim", "R. Primitif (R)", 15.0, 0.5), ("e_excent", "Excentricité (e)", 2.5, 0.25)]), ("Résolution", [("nb_points", "Nb de points", 2000, 500)])],
+            # Configuration Trochoïde mise à jour : e_excent devient d_traceur
+            "Trochoïde": [("Géométrie", [("N_lobes", "Dents Stator (N)", 6, 1), ("R_prim", "R. Primitif (R)", 22.0, 0.5), ("d_traceur", "Dist. traceur (d)", 3, 0.25), ("rho_env", "Enveloppe (\u03C1)", 4.0, 0.1)]), ("Résolution", [("nb_points", "Nb de points", 3000, 100)])],
             "Paramétrique": [("Globaux", [("N_lobes", "Nb de cavités", 5, 1), ("R_prim", "Rayon primitif", 13.0, 0.5), ("R_ext", "Rayon extérieur", 10.0, 0.5), ("phi_deg", "Angle (°)", 0.0, 5.0)]), ("Spécifiques", [("r_cercle", "Rayon r (Circ)", 5.0, 0.5), ("a_ell", "Prof a (Ell)", 5.0, 0.5), ("b_ell", "Largeur b (Ell)", 4.0, 0.5), ("A_sin", "Ampli A (Sin)", 5.0, 0.5), ("T_sin", "Période T (Sin)", 150.0, 1.0)]), ("Résolution", [("nb_points", "Nb de points", 2000, 100)])]
         }
 
@@ -129,6 +129,7 @@ class GeorotorApp(ctk.CTk):
             methode = self.methode_var.get()
             sm = self.sous_mode_var.get() if methode != "Hybride" else ""
             X, Y, X_rotor, Y_rotor = None, None, None, None
+            X_gen, Y_gen = None, None
 
             titre_full = f"Visualisation de la méthode : {methode.upper()}" + (f" - {sm}" if sm else "")
             self.titre_dynamique.configure(text=titre_full)
@@ -140,12 +141,12 @@ class GeorotorApp(ctk.CTk):
             elif methode == "Trochoïde":
                 N = self.inputs['N_lobes'].get()
                 R_p = self.inputs['R_prim'].get()
-                e = self.inputs['e_excent'].get()
+                d_t = self.inputs['d_traceur'].get()  # Remplacé ici
+                rho_env = self.inputs['rho_env'].get()
                 pts = self.inputs['nb_points'].get()
                 
-                # Plus besoin de verrouillage, les calculs sont purs
-                X, Y, _, _ = modeles.modele_trochoide(N, R_p, e, pts, sm)
-                self.parametres_actifs = {"Mode": f"Trochoïde - {sm}", "Lobes": N, "R_prim": R_p, "Excentricité": e}
+                X, Y, X_gen, Y_gen = modeles.modele_trochoide(N, R_p, d_t, rho_env, pts, sm)
+                self.parametres_actifs = {"Mode": f"Trochoïde - {sm}", "Lobes": N, "R_prim": R_p, "Dist. Traceur": d_t, "Rho": rho_env}
             
             elif methode == "Paramétrique":
                 N, Rp, Rext, pts, phi = self.inputs['N_lobes'].get(), self.inputs['R_prim'].get(), self.inputs['R_ext'].get(), max(2, int(self.inputs['nb_points'].get())//(2*int(self.inputs['N_lobes'].get()))), self.inputs['phi_deg'].get()
@@ -160,7 +161,13 @@ class GeorotorApp(ctk.CTk):
             self.ax_profil.clear(); self.ax_schema.clear()
             couleur_stator = 'darkorchid' if methode == "Paramétrique" else ('black' if methode == "Trochoïde" else 'red')
             
-            self.ax_profil.plot(X, Y, color=couleur_stator, lw=2, label="Stator" if methode == "Hybride" else f"Profil {methode}")
+            # --- DESSIN DU PROFIL ---
+            if X_gen is not None:
+                self.ax_profil.plot(X_gen, Y_gen, 'k--', alpha=0.4, label="Génératrice")
+                self.ax_schema.plot(X_gen, Y_gen, 'k--', alpha=0.3)
+
+            label_principal = "Enveloppe lissée" if methode == "Trochoïde" else ("Stator" if methode == "Hybride" else f"Profil {methode}")
+            self.ax_profil.plot(X, Y, color=couleur_stator, lw=2, label=label_principal)
             self.ax_profil.fill(X, Y, color=couleur_stator, alpha=0.15)
             self.ax_profil.plot(0, 0, 'ko', markersize=4)
 
@@ -174,6 +181,7 @@ class GeorotorApp(ctk.CTk):
             self.ax_profil.axis('equal'); self.ax_profil.grid(True, linestyle=':', alpha=0.6)
             self.ax_profil.legend(loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=3, frameon=False, fontsize=10)
 
+            # --- DESSIN DU SCHÉMA ---
             self.ax_schema.plot(X, Y, color='black', alpha=0.15) 
             th = np.linspace(0, 2*np.pi, 200)
             
@@ -185,14 +193,14 @@ class GeorotorApp(ctk.CTk):
             if methode == "Trochoïde":
                 R_p = self.inputs['R_prim'].get()
                 N_val = self.inputs['N_lobes'].get()
-                e_val = self.inputs['e_excent'].get()
+                d_val = self.inputs['d_traceur'].get()  # Remplacé ici
                 
-                # Le rayon roulant est déduit pour le schéma
                 r_r = R_p / N_val
                 centre_r = R_p - r_r if sm == "Hypocycloïde" else R_p + r_r
                 
                 self.ax_schema.plot(centre_r + r_r*np.cos(th), r_r*np.sin(th), 'g--', alpha=0.5, label="r_roulant calculé")
-                self.ax_schema.plot([centre_r, centre_r + e_val], [0, 0], 'g-', lw=2, label="Excentricité (e)")
+                # Le label graphique de l'axe est bien mis à jour
+                self.ax_schema.plot([centre_r, centre_r + d_val], [0, 0], 'g-', lw=2, label="Distance traceur (d)")
                 self.ax_schema.plot(centre_r, 0, 'go', markersize=4)
 
             self.ax_schema.axis('equal'); self.ax_schema.grid(True, linestyle=':', alpha=0.6)

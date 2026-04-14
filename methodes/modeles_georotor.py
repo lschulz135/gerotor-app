@@ -63,27 +63,72 @@ def modele_hybride(N_lobes, e_excent, d_param, nb_points):
     return np.array(x_stator_full), np.array(y_stator_full), np.array(x_rotor_full), np.array(y_rotor_full)
 
 # ==========================================
-# 2. MÉTHODE TROCHOÏDE (Adaptée N_lobes / e)
+# 2. MÉTHODE TROCHOÏDE (Enveloppe lisse)
 # ==========================================
-def modele_trochoide(N_lobes, R_prim, e_excent, nb_points, type_trochoide="Hypocycloïde"):
-    N = int(N_lobes)
-    # Le rayon roulant se déduit mathématiquement du rayon primitif et du nb de lobes
-    r_roulant = R_prim / N
+def modele_trochoide(N_lobes, R_prim, d_traceur, rho_enveloppe, nb_points, type_trochoide="Hypocycloïde"):
+    K = 1 if type_trochoide == "Épitrochoïde" else -1
     
-    # L'excentricité agit comme le rayon traceur
-    R_traceur = e_excent
+    # Règle de signe pour l'enveloppe : 
+    # K=-1 -> rho négatif | K=1 -> rho positif (calcul automatique)
+    rho_calc = K * abs(rho_enveloppe)
     
-    # Puisque N est un entier parfait, la courbe se referme toujours exactement en 2*pi
-    theta = np.linspace(0, 2 * np.pi, int(nb_points))
+    n1 = int(N_lobes)
+    n2 = n1 + K
     
-    if type_trochoide == "Hypocycloïde":
-        X = (R_prim - r_roulant) * np.cos(theta) + R_traceur * np.cos(((R_prim - r_roulant) / r_roulant) * theta)
-        Y = (R_prim - r_roulant) * np.sin(theta) - R_traceur * np.sin(((R_prim - r_roulant) / r_roulant) * theta)
-    else: 
-        X = (R_prim + r_roulant) * np.cos(theta) - R_traceur * np.cos(((R_prim + r_roulant) / r_roulant) * theta)
-        Y = (R_prim + r_roulant) * np.sin(theta) - R_traceur * np.sin(((R_prim + r_roulant) / r_roulant) * theta)
+    a = R_prim * (n2 / n1)
+    phi1 = np.linspace(0, 2 * np.pi * n2, int(nb_points))
+    
+    x_t = a * np.sin(phi1 / n2) - K * d_traceur * np.sin(K * phi1)
+    y_t = a * np.cos(phi1 / n2) - K * d_traceur * np.cos(K * phi1)
+    
+    dx_dphi = (a / n2) * np.cos(phi1 / n2) - d_traceur * np.cos(K * phi1)
+    dy_dphi = -(a / n2) * np.sin(phi1 / n2) + d_traceur * np.sin(K * phi1)
+    
+    mag = np.hypot(dx_dphi, dy_dphi)
+    mag_safe = np.where(mag < 1e-10, 1e-10, mag)
+    
+    n_x = dy_dphi / mag_safe
+    n_y = -dx_dphi / mag_safe
+    
+    x_env_brut = x_t + rho_calc * n_x
+    y_env_brut = y_t + rho_calc * n_y
+    
+    dist_consecutifs = np.hypot(np.diff(x_env_brut), np.diff(y_env_brut))
+    seuil_saut = abs(rho_calc) * 0.2
+    
+    sauts = np.where(dist_consecutifs > seuil_saut)[0]
+    
+    if len(sauts) > 0:
+        x_env_lisse, y_env_lisse = [], []
+        idx_prec = 0
         
-    return X, Y, None, None
+        for i in sauts:
+            x_env_lisse.extend(x_env_brut[idx_prec:i+1])
+            y_env_lisse.extend(y_env_brut[idx_prec:i+1])
+            
+            angle_avant = np.arctan2(n_y[i], n_x[i])
+            angle_apres = np.arctan2(n_y[i+1], n_x[i+1])
+            
+            delta = angle_apres - angle_avant
+            delta = (delta + np.pi) % (2 * np.pi) - np.pi
+            
+            if K == 1:
+                signe = 1 if delta >= 0 else -1
+                delta = delta - signe * 2 * np.pi
+            
+            angles_arc = angle_avant + np.linspace(0, delta, 30)
+            
+            x_env_lisse.extend(x_t[i] + rho_calc * np.cos(angles_arc))
+            y_env_lisse.extend(y_t[i] + rho_calc * np.sin(angles_arc))
+            
+            idx_prec = i + 1
+            
+        x_env_lisse.extend(x_env_brut[idx_prec:])
+        y_env_lisse.extend(y_env_brut[idx_prec:])
+        
+        return np.array(x_env_lisse), np.array(y_env_lisse), x_t, y_t
+    
+    return x_env_brut, y_env_brut, x_t, y_t
 
 # ==========================================
 # 3. MÉTHODE PARAMÉTRIQUE
