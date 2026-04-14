@@ -1,10 +1,10 @@
-# Conception & Analyse Géorotor ⚙️
+# Conception & Analyse Pompe Gerotor
 
 Une application de bureau développée en Python (avec CustomTkinter) permettant de générer, visualiser et exporter des profils de géorotors (pompes à lobes). 
 
 L'application regroupe plusieurs moteurs mathématiques pour concevoir des profils selon trois méthodes distinctes : Paramétrique, Trochoïdale et Hybride.
 
-## ✨ Fonctionnalités
+## Fonctionnalités
 * **Génération dynamique** des profils de stator et rotor avec retour visuel en temps réel.
 * **3 méthodes mathématiques** :
   * Paramétrique (Circulaire, Elliptique, Sinusoïdal)
@@ -18,7 +18,9 @@ L'application regroupe plusieurs moteurs mathématiques pour concevoir des profi
 
 Il est fortement recommandé d'utiliser un environnement virtuel Python pour éviter les conflits de dépendances.
 
-**1. Cloner le dépôt :**
+### 1. Créer l'environnement virtuel
+Ouvrez votre terminal à la racine du projet et exécutez :
+
+Sur Windows :
 ```bash
-git clone [https://github.com/ton-nom-utilisateur/nom-du-repo.git](https://github.com/ton-nom-utilisateur/nom-du-repo.git)
-cd nom-du-repo
+python -m venv venv 
