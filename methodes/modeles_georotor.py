@@ -78,7 +78,7 @@ def modele_trochoide(N_lobes, R_prim, d_traceur, rho_enveloppe, nb_points, type_
     n1 = int(N_lobes)
     n2 = n1 + K
     
-    a = R_prim * (n2 / n1)
+    a = R_prim * (n2 / n1) 
     phi1 = np.linspace(0, 2 * np.pi * n2, int(nb_points))
     
     x_t = a * np.sin(phi1 / n2) - K * d_traceur * np.sin(K * phi1)
