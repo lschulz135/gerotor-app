@@ -178,16 +178,19 @@ def calculer_A_star(m, e, d):
         return min(areas) / (rho**2) if areas else None
     except: return None
 
-def lancer_analyse_hybride(m, e, d, h):
+def lancer_analyse_hybride(m, e, d, h, N_rpm):
     x_stator_single, y_stator_single, x_rotor_single, y_rotor_single = generate_gerotor_profiles(m, e, d, 2000)
     
     n = m - 1
+    
+    # Ligne corrigée ! (On passe bien x_single et y_single)
     x_stator_full, y_stator_full = generate_full_profile(x_stator_single, y_stator_single, m)
     x_rotor_original, y_rotor_original = generate_full_profile(x_rotor_single, y_rotor_single, n)
+    
     x_rotor_full = x_rotor_original + e
     y_rotor_full = y_rotor_original
 
-    # Chambres et volumes
+    # 1. Chambres et volumes
     chamber_segments, _, _, _, _ = find_chamber_boundaries(x_stator_full, y_stator_full, x_rotor_full, y_rotor_full)
     chamber_details = []
     for theta_start, theta_end in chamber_segments:
@@ -195,23 +198,48 @@ def lancer_analyse_hybride(m, e, d, h):
         if res['A_chamber'] > 0: chamber_details.append(res)
         
     areas = [c['A_chamber'] for c in chamber_details]
-    V_total = sum(areas) * h if areas else 0
-    V_max = max(areas) * h if areas else 0
+    
+    # --- CALCUL EXACT DES VOLUMES ET PERTES ---
+    nb_chambres = len(areas)
+    A_min = min(areas) if areas else 0
+    A_max = max(areas) if areas else 0
+    
+    # Volume par chambre (mm³)
+    V_max_chambre = A_max * h
+    V_mort_chambre = A_min * h
+    V_cyl_chambre = V_max_chambre - V_mort_chambre
+    
+    # Performances globales de la pompe
+    V_cyl_totale = V_cyl_chambre * nb_chambres       # Cylindrée totale par tour (mm³/tr)
+    V_mort_total_tr = V_mort_chambre * nb_chambres   # Volume mort recirculé par tour (mm³/tr)
+    
+    # Débits (L/min)
+    Q_th_lpm = (V_cyl_totale * N_rpm) / 1_000_000.0
+    Q_recirc_lpm = (V_mort_total_tr * N_rpm) / 1_000_000.0
 
-    # Constriction & Statistiques courantes
+    performances = {
+        "V_cyl_totale": V_cyl_totale,  # mm³
+        "V_mort_total": V_mort_total_tr, # mm³
+        "V_max_ch": V_max_chambre,     # mm³
+        "V_min_ch": V_mort_chambre,    # mm³
+        "Q_th_lpm": Q_th_lpm,          # L/min
+        "Q_recirc_lpm": Q_recirc_lpm,  # L/min
+        "ratio_mort": (V_mort_total_tr / V_cyl_totale * 100) if V_cyl_totale > 0 else 0 # %
+    }
+    # ------------------------------------------
+
     constriction = find_constriction(x_stator_full, y_stator_full, x_rotor_full, y_rotor_full)
     rho_carac = (((m * e) - d) + ((m - 1) * e - d)) / 2
-    
     stats = {
         "m_actuel": m,
         "lambda_d": d / rho_carac,
         "lambda_r": (m * e) / rho_carac,
         "lambda_e": e / rho_carac,
         "rho_carac": rho_carac,
-        "A_star": min(areas) / (rho_carac**2) if areas else 0
+        "A_star": A_min / (rho_carac**2) if rho_carac else 0
     }
 
-    # Étude paramétrique COMPLÈTE
+    # Étude paramétrique
     param_res = {
         "ld_vs_d_x": [], "astar_d_y": [],
         "le_vs_e_x": [], "astar_e_y": [],
@@ -246,7 +274,7 @@ def lancer_analyse_hybride(m, e, d, h):
             "x_rotor_full": x_rotor_full, "y_rotor_full": y_rotor_full,
             "chambres": chamber_details
         },
-        "performances": {"V_total": V_total, "V_max": V_max},
+        "performances": performances,
         "parametrique": param_res,
         "stats": stats,
         "constriction": constriction
