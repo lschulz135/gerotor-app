@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.integrate import trapezoid
 from scipy.interpolate import interp1d
+from scipy.spatial.distance import cdist
 
 def generate_full_profile(x_single, y_single, num_lobes, rotation_angle=0):
     x_full, y_full = [], []
@@ -57,7 +58,6 @@ def calculate_chamber_area_with_Ac_corrected(theta_start, theta_end, x_stator_fu
     if theta_end < theta_start: theta_end += 2 * np.pi
     theta_sector = np.linspace(theta_start, theta_end, n_angles)
     
-    # A_o
     theta_stator = np.arctan2(y_stator_full, x_stator_full)
     r_stator = np.sqrt(x_stator_full**2 + y_stator_full**2)
     sort_idx = np.argsort(theta_stator)
@@ -68,7 +68,6 @@ def calculate_chamber_area_with_Ac_corrected(theta_start, theta_end, x_stator_fu
     r_stator_sector = interp_stator(theta_sector)
     A_o = 0.5 * trapezoid(r_stator_sector**2, theta_sector)
     
-    # A_i
     theta_rotor = np.arctan2(y_rotor_full, x_rotor_full)
     r_rotor = np.sqrt(x_rotor_full**2 + y_rotor_full**2)
     sort_idx_r = np.argsort(theta_rotor)
@@ -79,7 +78,6 @@ def calculate_chamber_area_with_Ac_corrected(theta_start, theta_end, x_stator_fu
     r_rotor_sector = interp_rotor(theta_sector)
     A_i = 0.5 * trapezoid(r_rotor_sector**2, theta_sector)
     
-    # A_c
     theta_rotor_original = np.arctan2(y_rotor_original, x_rotor_original)
     theta_L = theta_start % (2 * np.pi)
     theta_F = theta_end % (2 * np.pi)
@@ -140,34 +138,47 @@ def generate_gerotor_profiles(m_param, e_param, d_param, n_points=2000):
     x_rotor = np.concatenate([xi1, xi2]); y_rotor = np.concatenate([eta1, eta2])
     return x_stator, y_stator, x_rotor, y_rotor
 
+def calc_curvature_generic(x, y):
+    dx, dy = np.gradient(x), np.gradient(y)
+    d2x, d2y = np.gradient(dx), np.gradient(dy)
+    num = (dx**2 + dy**2)**1.5
+    den = np.abs(dx * d2y - dy * d2x)
+    den[den < 1e-10] = 1e-10
+    return num / den
+
+def find_constriction(x_stator, y_stator, x_rotor, y_rotor):
+    rho_stator = calc_curvature_generic(x_stator, y_stator)
+    rho_rotor = calc_curvature_generic(x_rotor, y_rotor)
+    pts_s = np.column_stack([x_stator, y_stator])
+    pts_r = np.column_stack([x_rotor, y_rotor])
+    distances = cdist(pts_s, pts_r)
+    min_idx = np.unravel_index(np.argmin(distances), distances.shape)
+    i_s, i_r = min_idx[0], min_idx[1]
+    return {
+        'min_dist': distances[i_s, i_r],
+        'pt_stator': (x_stator[i_s], y_stator[i_s]),
+        'pt_rotor': (x_rotor[i_r], y_rotor[i_r]),
+        'rho_stator': rho_stator[i_s],
+        'rho_rotor': rho_rotor[i_r]
+    }
+
 def calculer_A_star(m, e, d):
     try:
-        me = m * e
-        r_base_outer = me - d
-        r_base_inner = (m - 1) * e - d
-        rho = (r_base_outer + r_base_inner) / 2
-        lambda_d = d / rho
-        
-        xs, ys, xr, yr = generate_gerotor_profiles(m, e, d, 1000)
+        rho = ((m * e - d) + ((m - 1) * e - d)) / 2
+        xs, ys, xr, yr = generate_gerotor_profiles(m, e, d, 800)
         xs_f, ys_f = generate_full_profile(xs, ys, m)
         xr_o, yr_o = generate_full_profile(xr, yr, m - 1)
-        xr_f = xr_o + e
-        
-        chambers, _, _, _, _ = find_chamber_boundaries(xs_f, ys_f, xr_f, yr_o)
-        if not chambers: return None, None
+        chambers, _, _, _, _ = find_chamber_boundaries(xs_f, ys_f, xr_o + e, yr_o)
+        if not chambers: return None
         
         areas = []
         for t_s, t_e in chambers:
-            res = calculate_chamber_area_with_Ac_corrected(t_s, t_e, xs_f, ys_f, xr_f, yr_o, xr_o, yr_o, e, 200)
+            res = calculate_chamber_area_with_Ac_corrected(t_s, t_e, xs_f, ys_f, xr_o + e, yr_o, xr_o, yr_o, e, 150)
             if res['A_chamber'] > 0: areas.append(res['A_chamber'])
-            
-        if not areas: return None, None
-        return min(areas) / (rho**2), lambda_d
-    except:
-        return None, None
+        return min(areas) / (rho**2) if areas else None
+    except: return None
 
 def lancer_analyse_hybride(m, e, d, h):
-    # Génération exacte comme dans old_2.py (2000 points)
     x_stator_single, y_stator_single, x_rotor_single, y_rotor_single = generate_gerotor_profiles(m, e, d, 2000)
     
     n = m - 1
@@ -176,8 +187,8 @@ def lancer_analyse_hybride(m, e, d, h):
     x_rotor_full = x_rotor_original + e
     y_rotor_full = y_rotor_original
 
+    # Chambres et volumes
     chamber_segments, _, _, _, _ = find_chamber_boundaries(x_stator_full, y_stator_full, x_rotor_full, y_rotor_full)
-    
     chamber_details = []
     for theta_start, theta_end in chamber_segments:
         res = calculate_chamber_area_with_Ac_corrected(theta_start, theta_end, x_stator_full, y_stator_full, x_rotor_full, y_rotor_full, x_rotor_original, y_rotor_original, e)
@@ -187,15 +198,46 @@ def lancer_analyse_hybride(m, e, d, h):
     V_total = sum(areas) * h if areas else 0
     V_max = max(areas) * h if areas else 0
 
-    # Étude paramétrique rapide (comme old_2.py)
-    d_values = np.linspace(1.5, 5.5, 15)
-    lambda_d_vals, a_star_vals = [], []
+    # Constriction & Statistiques courantes
+    constriction = find_constriction(x_stator_full, y_stator_full, x_rotor_full, y_rotor_full)
+    rho_carac = (((m * e) - d) + ((m - 1) * e - d)) / 2
+    
+    stats = {
+        "m_actuel": m,
+        "lambda_d": d / rho_carac,
+        "lambda_r": (m * e) / rho_carac,
+        "lambda_e": e / rho_carac,
+        "rho_carac": rho_carac,
+        "A_star": min(areas) / (rho_carac**2) if areas else 0
+    }
+
+    # Étude paramétrique COMPLÈTE
+    param_res = {
+        "ld_vs_d_x": [], "astar_d_y": [],
+        "le_vs_e_x": [], "astar_e_y": [],
+        "lr_vs_m_x": [], "m_vals_x": [], "astar_m_y": []
+    }
+
+    d_values = np.linspace(max(0.5, d * 0.5), d * 1.5, 12)
     for d_val in d_values:
-        a_star, l_d = calculer_A_star(m, e, d_val)
-        if a_star is not None:
-            lambda_d_vals.append(l_d); a_star_vals.append(a_star)
-        else:
-            lambda_d_vals.append(np.nan); a_star_vals.append(np.nan)
+        a_star = calculer_A_star(m, e, d_val)
+        param_res["ld_vs_d_x"].append(d_val / rho_carac)
+        param_res["astar_d_y"].append(a_star if a_star else np.nan)
+
+    e_values = np.linspace(max(0.5, e * 0.5), e * 1.5, 12)
+    for e_val in e_values:
+        a_star = calculer_A_star(m, e_val, d)
+        rho_temp = ((m * e_val - d) + ((m - 1) * e_val - d)) / 2
+        param_res["le_vs_e_x"].append(e_val / rho_temp if rho_temp else np.nan)
+        param_res["astar_e_y"].append(a_star if a_star else np.nan)
+
+    m_values = np.arange(max(3, m - 3), m + 4)
+    for m_val in m_values:
+        a_star = calculer_A_star(m_val, e, d)
+        rho_temp = ((m_val * e - d) + ((m_val - 1) * e - d)) / 2
+        param_res["lr_vs_m_x"].append((m_val * e) / rho_temp if rho_temp else np.nan)
+        param_res["m_vals_x"].append(m_val)
+        param_res["astar_m_y"].append(a_star if a_star else np.nan)
 
     return {
         "geometrie": {
@@ -205,5 +247,7 @@ def lancer_analyse_hybride(m, e, d, h):
             "chambres": chamber_details
         },
         "performances": {"V_total": V_total, "V_max": V_max},
-        "parametrique": {"l_d": lambda_d_vals, "a_star": a_star_vals}
+        "parametrique": param_res,
+        "stats": stats,
+        "constriction": constriction
     }

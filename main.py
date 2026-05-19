@@ -5,6 +5,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import os
 from tkinter import PhotoImage
 import tkinter.ttk as ttk 
+import traceback
 
 from methodes.utils_app import CTkSpinbox, exporter_csv, popup_export_step
 from methodes import modeles_georotor as modeles
@@ -23,6 +24,7 @@ class GeorotorApp(ctk.CTk):
         self.donnees_actives_X, self.donnees_actives_Y = None, None
         self.donnees_actives_X_rotor, self.donnees_actives_Y_rotor = None, None
         self.parametres_actifs = {}
+        self.res_analyse_actuel = None
 
         self.setup_ui()
         self.charger_methode("Hybride")
@@ -37,7 +39,7 @@ class GeorotorApp(ctk.CTk):
         except: pass
 
     def setup_ui(self):
-        self.onglets = ctk.CTkTabview(self)
+        self.onglets = ctk.CTkTabview(self, command=self.on_tab_changed)
         self.onglets.pack(padx=10, pady=10, fill="both", expand=True)
         self.onglet_conception = self.onglets.add("Conception")
         self.onglet_analyse = self.onglets.add("Analyse")
@@ -105,7 +107,7 @@ class GeorotorApp(ctk.CTk):
         self.cible_export_var = ctk.StringVar(value="Stator")
         ctk.CTkOptionMenu(ribbon, variable=self.cible_export_var, values=["Stator", "Rotor"], width=90).pack(side="left", padx=5)
         ctk.CTkButton(ribbon, text="Exporter (CSV)", fg_color="transparent", border_width=2, text_color=("gray10", "gray90"), command=self.action_exporter_csv).pack(side="left", padx=20, pady=10)
-        ctk.CTkButton(ribbon, text="Exporter (STEP)", fg_color="#2b7b46", hover_color="#1e5c33", command=self.action_exporter_step).pack(side="left", padx=10, pady=10)
+        ctk.CTkButton(ribbon, text="Exporter Volume (STEP)", fg_color="#2b7b46", hover_color="#1e5c33", command=self.action_exporter_step).pack(side="left", padx=10, pady=10)
 
         # ==========================================
         # ONGLET 2 : ANALYSE
@@ -120,15 +122,59 @@ class GeorotorApp(ctk.CTk):
         ctk.CTkLabel(frame_tableau, text="Rapport des Chambres", font=("Arial", 14, "bold")).pack(pady=10)
         
         colonnes = ("Chambre", "A_o", "A_i", "A_c", "A_total")
-        self.tree_analyse = ttk.Treeview(frame_tableau, columns=colonnes, show="headings", height=15)
+        self.tree_analyse = ttk.Treeview(frame_tableau, columns=colonnes, show="headings", height=10)
         for col in colonnes:
             self.tree_analyse.heading(col, text=col)
             self.tree_analyse.column(col, width=80 if col == "Chambre" else 90, anchor="center")
-        self.tree_analyse.pack(expand=True, fill="both", padx=10, pady=10)
+        self.tree_analyse.pack(fill="x", padx=10, pady=(0, 10))
         
-        self.lbl_cylindree = ctk.CTkLabel(frame_tableau, text="Cylindrée : -- cm³", font=("Arial", 16, "bold"), text_color="#1f538d")
-        self.lbl_cylindree.pack(pady=20)
+        # --- UI Cylindrée ---
+        self.lbl_cylindree = ctk.CTkLabel(frame_tableau, text="Cylindrée : -- cm³", font=("Arial", 16, "bold"), text_color="white")
+        self.lbl_cylindree.pack(pady=5)
 
+        # --- UI DASHBOARD POUR LES STATS (3 Colonnes) ---
+        self.frame_dashboard = ctk.CTkFrame(frame_tableau, fg_color="transparent")
+        self.frame_dashboard.pack(expand=True, fill="both", padx=5, pady=5)
+        self.frame_dashboard.grid_columnconfigure((0, 1, 2), weight=1)
+
+        # Carte 1 : Adimensionnels
+        frame_param = ctk.CTkFrame(self.frame_dashboard, corner_radius=8, fg_color="#1e1e1e")
+        frame_param.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        ctk.CTkLabel(frame_param, text="📊 Adimensionnels", font=("Arial", 13, "bold")).pack(pady=(10, 5))
+        
+        self.lbl_lambda_d = ctk.CTkLabel(frame_param, text="λ_d : --", font=("Arial", 12))
+        self.lbl_lambda_d.pack(anchor="w", padx=15, pady=2)
+        self.lbl_lambda_r = ctk.CTkLabel(frame_param, text="λ_r : --", font=("Arial", 12))
+        self.lbl_lambda_r.pack(anchor="w", padx=15, pady=2)
+        self.lbl_lambda_e = ctk.CTkLabel(frame_param, text="λ_e : --", font=("Arial", 12))
+        self.lbl_lambda_e.pack(anchor="w", padx=15, pady=2)
+        self.lbl_a_star = ctk.CTkLabel(frame_param, text="A* : --", font=("Arial", 12))
+        self.lbl_a_star.pack(anchor="w", padx=15, pady=(2, 10))
+
+        # Carte 2 : Mécanique
+        frame_meca = ctk.CTkFrame(self.frame_dashboard, corner_radius=8, fg_color="#1e1e1e")
+        frame_meca.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+        ctk.CTkLabel(frame_meca, text="🔧 Mécanique", font=("Arial", 13, "bold")).pack(pady=(10, 5))
+        
+        self.lbl_jeu = ctk.CTkLabel(frame_meca, text="Jeu min. : -- mm", font=("Arial", 12))
+        self.lbl_jeu.pack(anchor="w", padx=15, pady=2)
+        self.lbl_rho_s = ctk.CTkLabel(frame_meca, text="ρs (Stat) : -- mm", font=("Arial", 12))
+        self.lbl_rho_s.pack(anchor="w", padx=15, pady=2)
+        self.lbl_rho_r = ctk.CTkLabel(frame_meca, text="ρr (Rot) : -- mm", font=("Arial", 12))
+        self.lbl_rho_r.pack(anchor="w", padx=15, pady=(2, 10))
+
+        # Carte 3 : Graphique Interactif 
+        frame_interactif = ctk.CTkFrame(self.frame_dashboard, corner_radius=8, fg_color="#1e1e1e")
+        frame_interactif.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
+        ctk.CTkLabel(frame_interactif, text="📈 Étude Interactive", font=("Arial", 13, "bold")).pack(pady=(10, 5))
+        
+        self.choix_param_var = ctk.StringVar(value="A* vs λ_d")
+        combo_param = ctk.CTkOptionMenu(frame_interactif, variable=self.choix_param_var,
+                                        values=["A* vs λ_d", "A* vs λ_e", "A* vs λ_r", "A* vs m"],
+                                        command=self.changer_graphique_parametrique)
+        combo_param.pack(padx=10, pady=15)
+
+        # Grille des Graphiques 2x2
         frame_grille = ctk.CTkFrame(self.onglet_analyse, fg_color="white", corner_radius=10)
         frame_grille.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
         
@@ -160,11 +206,10 @@ class GeorotorApp(ctk.CTk):
         elif methode_nom == "Hybride":
             self.spinbox_pts.set(2000)
 
-        # RETOUR À R_PRIM POUR LA CONCEPTION
         configs_base = {
             "Hybride": [("Géométrie", [
                 ("N_lobes", "Lobes stator (m)", 4, 1), 
-                ("R_prim", "R. Générateur (R)", 15.0, 0.5), # <-- R_prim au lieu de e
+                ("R_prim", "R. Générateur (R)", 15.0, 0.5), 
                 ("d_param", "Paramètre (d)", 2.5, 0.1),
                 ("h_epaisseur", "Hauteur (h)", 20.0, 1.0)
             ])],
@@ -221,26 +266,15 @@ class GeorotorApp(ctk.CTk):
                 d_val = self.inputs['d_param'].get()
                 h_val = self.inputs['h_epaisseur'].get() if 'h_epaisseur' in self.inputs else 20.0
                 
-                # --- CALCUL DE L'EXCENTRICITÉ À PARTIR DE R_PRIM ---
                 e_calc = R_val / m_val 
-                
                 X, Y, X_rotor, Y_rotor = modeles.modele_hybride(m_val, R_val, d_val, pts)
                 self.parametres_actifs = {"Mode": "Hybride", "Lobes": m_val, "R_prim": R_val, "Excentricité e": e_calc, "Paramètre d": d_val, "Hauteur": h_val}
-                
-                # --- LANCEMENT ANALYSE EXACTE ---
-                # L'analyseur mathématique reçoit l'excentricité (e_calc) qu'il attend
-                try:
-                    res = analyses.lancer_analyse_hybride(m_val, e_calc, d_val, h_val)
-                    self.mettre_a_jour_onglet_analyse(res)
-                except Exception as e_analyse:
-                    print(f"Erreur Analyse: {e_analyse}")
 
             elif methode == "Trochoïde":
                 N = self.inputs['N_lobes'].get(); R_p = self.inputs['R_prim'].get()
                 d_t = self.inputs['d_traceur'].get(); rho_env = self.inputs['rho_env'].get()
                 X, Y, X_gen, Y_gen = modeles.modele_trochoide(N, R_p, d_t, rho_env, pts, sm)
                 self.parametres_actifs = {"Mode": f"Trochoïde - {sm}", "Lobes": N, "R_prim": R_p, "Dist. Traceur": d_t, "Rho": rho_env}
-                self.reinitialiser_onglet_analyse()
             
             elif methode == "Paramétrique":
                 N = self.inputs['N_lobes'].get(); Rp = self.inputs['R_prim'].get()
@@ -251,12 +285,10 @@ class GeorotorApp(ctk.CTk):
                 elif sm == "Sinusoïdal" and 'A_sin' in self.inputs and 'T_sin' in self.inputs: X, Y = modeles.modele_parametrique_sin(N, Rp, Rext, self.inputs['A_sin'].get(), self.inputs['T_sin'].get(), pts_seg, phi)
                 else: return 
                 self.parametres_actifs = {"Mode": f"Paramétrique - {sm}", "Lobes": N, "Rayon Prim": Rp}
-                self.reinitialiser_onglet_analyse()
 
             self.donnees_actives_X, self.donnees_actives_Y = X, Y
             self.donnees_actives_X_rotor, self.donnees_actives_Y_rotor = X_rotor, Y_rotor
 
-            # Tracé conception
             self.ax_profil.clear(); self.ax_schema.clear()
             couleur_stator = 'darkorchid' if methode == "Paramétrique" else ('black' if methode == "Trochoïde" else 'red')
             if X_gen is not None:
@@ -269,7 +301,6 @@ class GeorotorApp(ctk.CTk):
 
             if X_rotor is not None:
                 if methode == "Hybride":
-                    # Pour dessiner, on utilise e_calc calculé plus haut
                     e_val = self.inputs['R_prim'].get() / int(self.inputs['N_lobes'].get())
                     self.ax_profil.plot(X_rotor + e_val, Y_rotor, color='blue', lw=2, label="Rotor")
                     self.ax_profil.fill(X_rotor + e_val, Y_rotor, color='blue', alpha=0.15)
@@ -300,8 +331,71 @@ class GeorotorApp(ctk.CTk):
         except Exception as e: self.label_erreur.configure(text=f"Erreur de calcul : {e}")
 
     # ==========================================
+    # LOGIQUE SYNCHRONE POUR L'ANALYSE
+    # ==========================================
+    def on_tab_changed(self):
+        if self.onglets.get() == "Analyse":
+            self.executer_analyse()
+
+    def executer_analyse(self):
+        methode = self.methode_var.get()
+        if methode != "Hybride":
+            self.reinitialiser_onglet_analyse()
+            return
+            
+        try:
+            m_val = int(self.inputs['N_lobes'].get())
+            R_val = self.inputs['R_prim'].get()
+            d_val = self.inputs['d_param'].get()
+            h_val = self.inputs['h_epaisseur'].get() if 'h_epaisseur' in self.inputs else 20.0
+            e_calc = R_val / m_val 
+            
+            # Exécution de l'analyse (calcul bloquant direct)
+            res = analyses.lancer_analyse_hybride(m_val, e_calc, d_val, h_val)
+            self.res_analyse_actuel = res
+            self.mettre_a_jour_onglet_analyse(res)
+            
+        except Exception as e:
+            print(f"Erreur Analyse: {e}")
+            traceback.print_exc()
+            self.reinitialiser_onglet_analyse()
+
+    # ==========================================
     # MISE À JOUR ONGLET ANALYSE
     # ==========================================
+    def changer_graphique_parametrique(self, choix):
+        if not self.res_analyse_actuel: return
+        
+        param = self.res_analyse_actuel["parametrique"]
+        stats = self.res_analyse_actuel["stats"]
+        self.ax_param.clear()
+
+        if choix == "A* vs λ_d":
+            x, y = np.array(param["ld_vs_d_x"]), np.array(param["astar_d_y"])
+            titre, xlabel, val_actuelle = "A* vs λ_d", "λ_d = d/ρ", stats["lambda_d"]
+        elif choix == "A* vs λ_e":
+            x, y = np.array(param["le_vs_e_x"]), np.array(param["astar_e_y"])
+            titre, xlabel, val_actuelle = "A* vs λ_e", "λ_e = e/ρ", stats["lambda_e"]
+        elif choix == "A* vs λ_r":
+            x, y = np.array(param["lr_vs_m_x"]), np.array(param["astar_m_y"])
+            titre, xlabel, val_actuelle = "A* vs λ_r", "λ_r = R/ρ", stats["lambda_r"]
+        else: # A* vs m
+            x, y = np.array(param["m_vals_x"]), np.array(param["astar_m_y"])
+            titre, xlabel, val_actuelle = "A* vs m (Dents)", "Nb de dents m", stats["m_actuel"]
+
+        valid = ~np.isnan(x) & ~np.isnan(y)
+        if any(valid):
+            self.ax_param.plot(x[valid], y[valid], 'o-', color='blue', linewidth=2, markersize=6)
+            self.ax_param.axvline(val_actuelle, color='red', linestyle='--', linewidth=1.5, label='Actuel')
+            self.ax_param.legend(fontsize=8)
+
+        self.ax_param.set_title(titre, fontsize=10, fontweight='bold')
+        self.ax_param.set_xlabel(xlabel, fontsize=8)
+        self.ax_param.set_ylabel("A*", fontsize=8)
+        self.ax_param.grid(True, linestyle=':', alpha=0.6)
+        
+        self.canvas_analyse.draw()
+
     def mettre_a_jour_onglet_analyse(self, res):
         for item in self.tree_analyse.get_children(): self.tree_analyse.delete(item)
             
@@ -313,8 +407,19 @@ class GeorotorApp(ctk.CTk):
         v_tot_cm3 = res["performances"]["V_total"] / 1000
         self.lbl_cylindree.configure(text=f"Cylindrée Totale : {v_tot_cm3:.3f} cm³")
 
-        self.ax_rotor.clear(); self.ax_stator.clear()
-        self.ax_assemblage.clear(); self.ax_param.clear()
+        stats = res["stats"]
+        constriction = res["constriction"]
+        
+        self.lbl_lambda_d.configure(text=f"λ_d : {stats['lambda_d']:.4f}")
+        self.lbl_lambda_r.configure(text=f"λ_r : {stats['lambda_r']:.4f}")
+        self.lbl_lambda_e.configure(text=f"λ_e : {stats['lambda_e']:.4f}")
+        self.lbl_a_star.configure(text=f"A* : {stats['A_star']:.4f}")
+
+        self.lbl_jeu.configure(text=f"Jeu min. : {constriction['min_dist']:.4f} mm")
+        self.lbl_rho_s.configure(text=f"ρs (Stat) : {constriction['rho_stator']:.2f} mm")
+        self.lbl_rho_r.configure(text=f"ρr (Rot) : {constriction['rho_rotor']:.2f} mm")
+
+        self.ax_rotor.clear(); self.ax_stator.clear(); self.ax_assemblage.clear()
         
         geom = res["geometrie"]
         
@@ -334,19 +439,35 @@ class GeorotorApp(ctk.CTk):
             self.ax_assemblage.plot(c["x_stator"], c["y_stator"], color=chamber_colors[i], linewidth=2.5)
             self.ax_assemblage.plot(c["x_rotor"], c["y_rotor"], color=chamber_colors[i], linewidth=2.5, linestyle='--')
             
-        self.ax_assemblage.set_title("Assemblage & Chambres", fontsize=10, fontweight='bold'); self.ax_assemblage.axis('equal'); self.ax_assemblage.grid(True, linestyle=':', alpha=0.6)
+            # --- NOUVEAU : Affichage des numéros des chambres ---
+            center_x = (np.mean(c['x_stator']) + np.mean(c['x_rotor'])) / 2
+            center_y = (np.mean(c['y_stator']) + np.mean(c['y_rotor'])) / 2
+            self.ax_assemblage.text(center_x, center_y, f'{i+1}', 
+                                    fontsize=10, fontweight='bold', ha='center', va='center',
+                                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                                              edgecolor=chamber_colors[i], alpha=0.8))
+            
+        pt_s = constriction['pt_stator']
+        pt_r = constriction['pt_rotor']
+        self.ax_assemblage.plot([pt_s[0], pt_r[0]], [pt_s[1], pt_r[1]], 'k-', linewidth=3, zorder=10) 
+        self.ax_assemblage.plot(pt_s[0], pt_s[1], 'ko', markersize=5, zorder=10)
+        self.ax_assemblage.annotate('Constriction', xy=pt_s, xytext=(10, 10), textcoords='offset points', 
+                                    arrowprops=dict(arrowstyle="->", color='black'), fontsize=8, fontweight='bold')
+
+        self.ax_assemblage.set_title("Assemblage & Constriction", fontsize=10, fontweight='bold'); self.ax_assemblage.axis('equal'); self.ax_assemblage.grid(True, linestyle=':', alpha=0.6)
         
-        param = res["parametrique"]
-        valid_idx = ~np.isnan(param["l_d"]) & ~np.isnan(param["a_star"])
-        self.ax_param.plot(np.array(param["l_d"])[valid_idx], np.array(param["a_star"])[valid_idx], 'o-', color='blue')
-        self.ax_param.set_title("A* vs λ_d", fontsize=10, fontweight='bold'); self.ax_param.set_xlabel("λ_d", fontsize=8); self.ax_param.set_ylabel("A*", fontsize=8); self.ax_param.grid(True, linestyle=':', alpha=0.6)
-        
-        self.fig_analyse.tight_layout()
-        self.canvas_analyse.draw()
+        self.changer_graphique_parametrique(self.choix_param_var.get())
 
     def reinitialiser_onglet_analyse(self):
         for item in self.tree_analyse.get_children(): self.tree_analyse.delete(item)
         self.lbl_cylindree.configure(text="Analyse non supportée pour cette méthode.")
+        self.lbl_lambda_d.configure(text="λ_d : --")
+        self.lbl_lambda_r.configure(text="λ_r : --")
+        self.lbl_lambda_e.configure(text="λ_e : --")
+        self.lbl_a_star.configure(text="A* : --")
+        self.lbl_jeu.configure(text="Jeu min. : -- mm")
+        self.lbl_rho_s.configure(text="ρs (Stat) : -- mm")
+        self.lbl_rho_r.configure(text="ρr (Rot) : -- mm")
         self.ax_rotor.clear(); self.ax_stator.clear(); self.ax_assemblage.clear(); self.ax_param.clear()
         self.canvas_analyse.draw()
 
