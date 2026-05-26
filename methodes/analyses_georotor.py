@@ -2,6 +2,8 @@ import numpy as np
 from scipy.integrate import trapezoid
 from scipy.interpolate import interp1d
 from scipy.spatial.distance import cdist
+from scipy.signal import find_peaks
+
 
 def generate_full_profile(x_single, y_single, num_lobes, rotation_angle=0):
     x_full, y_full = [], []
@@ -264,6 +266,235 @@ def lancer_analyse_hybride(m, e, d, h, N_rpm):
         a_star = calculer_A_star(m_val, e, d)
         rho_temp = ((m_val * e - d) + ((m_val - 1) * e - d)) / 2
         param_res["lr_vs_m_x"].append((m_val * e) / rho_temp if rho_temp else np.nan)
+        param_res["m_vals_x"].append(m_val)
+        param_res["astar_m_y"].append(a_star if a_star else np.nan)
+
+    return {
+        "geometrie": {
+            "x_stator_full": x_stator_full, "y_stator_full": y_stator_full,
+            "x_rotor_original": x_rotor_original, "y_rotor_original": y_rotor_original,
+            "x_rotor_full": x_rotor_full, "y_rotor_full": y_rotor_full,
+            "chambres": chamber_details
+        },
+        "performances": performances,
+        "parametrique": param_res,
+        "stats": stats,
+        "constriction": constriction
+    }
+
+def extraire_chambres_robust(x_stator, y_stator, x_rotor, y_rotor, expected_chambers):
+    # 1. Calcul de la distance point à point (Même indice = Même angle polaire d'origine)
+    # Ceci élimine 100% des bugs d'inversion d'index et de polygone géant
+    distances = np.hypot(x_stator - x_rotor, y_stator - y_rotor)
+    
+    # Lissage léger de sécurité
+    kernel = np.ones(5)/5
+    dists_smooth = np.convolve(np.pad(distances, (2,2), mode='wrap'), kernel, mode='valid')
+    
+    # 2. Détection des points de contact (creux de la distance)
+    min_dist = max(1, len(x_stator) // (expected_chambers * 3))
+    minima_indices, _ = find_peaks(-dists_smooth, distance=min_dist)
+    
+    # Forçage strict du nombre de chambres
+    if len(minima_indices) > expected_chambers:
+        peak_distances = dists_smooth[minima_indices]
+        best_indices = minima_indices[np.argsort(peak_distances)[:expected_chambers]]
+        minima_indices = np.sort(best_indices)
+    elif len(minima_indices) < expected_chambers:
+        minima_indices = []
+        sector_size = len(x_stator) // expected_chambers
+        for i in range(expected_chambers):
+            start_idx = i * sector_size
+            end_idx = (i + 1) * sector_size if i < expected_chambers - 1 else len(x_stator)
+            local_min = np.argmin(dists_smooth[start_idx:end_idx])
+            minima_indices.append(start_idx + local_min)
+        minima_indices = np.array(minima_indices)
+
+    # 3. Fonction d'extraction de segment ultra-basique
+def extraire_chambres_robust(x_stator, y_stator, x_rotor, y_rotor, expected_chambers):
+    # 1. NETTOYAGE DES BOUCLES FERMÉES
+    # On retire le dernier point s'il est identique au premier pour éviter les erreurs d'indice
+    if np.allclose([x_stator[0], y_stator[0]], [x_stator[-1], y_stator[-1]]):
+        xs = x_stator[:-1]; ys = y_stator[:-1]
+    else:
+        xs = x_stator; ys = y_stator
+        
+    if np.allclose([x_rotor[0], y_rotor[0]], [x_rotor[-1], y_rotor[-1]]):
+        xr = x_rotor[:-1]; yr = y_rotor[:-1]
+    else:
+        xr = x_rotor; yr = y_rotor
+
+    # 2. CALCUL DE DISTANCE PHYSIQUE ABSOLUE
+    pts_s = np.column_stack([xs, ys])
+    pts_r = np.column_stack([xr, yr])
+    dist_matrix = cdist(pts_s, pts_r)
+    
+    # Distance minimale du stator vers le rotor
+    gap_s = np.min(dist_matrix, axis=1)
+    
+    # Lissage léger
+    kernel = np.ones(5)/5
+    gap_smooth = np.convolve(np.pad(gap_s, (2,2), mode='wrap'), kernel, mode='valid')
+    
+    # 3. TUILAGE 3X (La solution parfaite pour les lobes impairs coupés à la frontière)
+    gap_tiled = np.tile(gap_smooth, 3)
+    min_dist = max(1, len(gap_smooth) // (expected_chambers * 2))
+    peaks, _ = find_peaks(-gap_tiled, distance=min_dist)
+    
+    # On ne garde strictement que les pics du tour central
+    valid_peaks = peaks[(peaks >= len(gap_smooth)) & (peaks < 2 * len(gap_smooth))]
+    s_contacts = valid_peaks - len(gap_smooth)
+    
+    # 4. FORÇAGE STRICT DU NOMBRE DE CHAMBRES
+    if len(s_contacts) > expected_chambers:
+        best_idx = np.argsort(gap_smooth[s_contacts])[:expected_chambers]
+        s_contacts = np.sort(s_contacts[best_idx])
+    elif len(s_contacts) < expected_chambers:
+        s_contacts = np.linspace(0, len(gap_smooth), expected_chambers, endpoint=False).astype(int)
+
+    # 5. ASSIGNATION TOPOLOGIQUE 
+    # Quel point du rotor touche exactement ce point du stator ?
+    r_contacts = np.argmin(dist_matrix[s_contacts], axis=1)
+
+    # Fonction magique : Extraction du chemin le plus court sur le périmètre
+    def get_shortest_path(arr_x, arr_y, start, end):
+        L = len(arr_x)
+        dist_fwd = (end - start) % L
+        dist_bwd = (start - end) % L
+        
+        if dist_fwd <= dist_bwd: # On avance
+            if start <= end:
+                return arr_x[start:end+1], arr_y[start:end+1]
+            else: # On passe par le zéro
+                return np.concatenate([arr_x[start:], arr_x[:end+1]]), np.concatenate([arr_y[start:], arr_y[:end+1]])
+        else: # On recule
+            if start >= end:
+                return arr_x[end:start+1][::-1], arr_y[end:start+1][::-1]
+            else: # On recule en passant par le zéro
+                return np.concatenate([arr_x[:start+1][::-1], arr_x[end:][::-1]]), np.concatenate([arr_y[:start+1][::-1], arr_y[end:][::-1]])
+
+    def poly_area(px, py):
+        return 0.5 * np.abs(np.dot(px, np.roll(py, -1)) - np.dot(py, np.roll(px, -1)))
+
+    chamber_details = []
+    
+    # 6. DÉCOUPE PARFAITE DES CHAMBRES
+    for i in range(len(s_contacts)):
+        s_start = s_contacts[i]
+        s_end = s_contacts[(i + 1) % len(s_contacts)]
+        
+        r_start = r_contacts[i]
+        r_end = r_contacts[(i + 1) % len(r_contacts)]
+        
+        # Le Stator va du contact A au contact B
+        seg_xs, seg_ys = get_shortest_path(xs, ys, s_start, s_end)
+        # Le Rotor FERME la chambre : il doit revenir du contact B au contact A
+        seg_xr, seg_yr = get_shortest_path(xr, yr, r_end, r_start) 
+        
+        # On soude les deux morceaux pour faire le polygone fermé
+        px = np.concatenate([seg_xs, seg_xr])
+        py = np.concatenate([seg_ys, seg_yr])
+        
+        A_chamber = poly_area(px, py)
+        A_o = poly_area(np.append(seg_xs, 0), np.append(seg_ys, 0))
+        A_i = poly_area(np.append(seg_xr, 0), np.append(seg_yr, 0))
+        
+        chamber_details.append({
+            'A_chamber': A_chamber, 'A_o': A_o, 'A_i': A_i, 'A_c': 0,
+            'x_stator': seg_xs, 'y_stator': seg_ys, 'x_rotor': seg_xr, 'y_rotor': seg_yr
+        })
+        
+    return chamber_details
+
+def calculer_A_star_trochoide(N, R, d, rho, sm):
+    from methodes import modeles_georotor as modeles
+    try:
+        xs, ys, xr, yr = modeles.modele_trochoide(N, R, d, rho, 500, sm)
+        e = R / N
+        xr_f, yr_f = xr + e, yr
+        
+        nb_chambres = N if sm == "Épitrochoïde" else max(1, N - 1)
+        # On utilise notre nouvelle fonction robuste
+        chamber_details = extraire_chambres_robust(xs, ys, xr_f, yr_f, nb_chambres)
+        
+        areas = [c['A_chamber'] for c in chamber_details if c['A_chamber'] > 0]
+        return min(areas) / (e**2) if areas else None
+    except: return None
+
+def lancer_analyse_trochoide(N, R_p, d_t, rho_env, sm, h, N_rpm):
+    from methodes import modeles_georotor as modeles
+    
+    x_stator_full, y_stator_full, x_rotor_original, y_rotor_original = modeles.modele_trochoide(N, R_p, d_t, rho_env, 2000, sm)
+    
+    e = R_p / N
+    x_rotor_full = x_rotor_original + e
+    y_rotor_full = y_rotor_original
+
+    # Extraction directe des détails des chambres avec la nouvelle méthode géométrique !
+    nb_chambres_attendues = N if sm == "Épitrochoïde" else max(1, N - 1)
+    chamber_details = extraire_chambres_robust(x_stator_full, y_stator_full, x_rotor_full, y_rotor_full, nb_chambres_attendues)
+        
+    areas = [c['A_chamber'] for c in chamber_details]
+    
+    nb_chambres = len(areas)
+    A_min = min(areas) if areas else 0
+    A_max = max(areas) if areas else 0
+    
+    V_max_chambre = A_max * h
+    V_mort_chambre = A_min * h
+    V_cyl_chambre = V_max_chambre - V_mort_chambre
+    
+    V_cyl_totale = V_cyl_chambre * nb_chambres       
+    V_mort_total_tr = V_mort_chambre * nb_chambres   
+    
+    Q_th_lpm = (V_cyl_totale * N_rpm) / 1_000_000.0
+    Q_recirc_lpm = (V_mort_total_tr * N_rpm) / 1_000_000.0
+
+    performances = {
+        "V_cyl_totale": V_cyl_totale,  
+        "V_mort_total": V_mort_total_tr, 
+        "V_max_ch": V_max_chambre,     
+        "V_min_ch": V_mort_chambre,    
+        "Q_th_lpm": Q_th_lpm,          
+        "Q_recirc_lpm": Q_recirc_lpm,  
+        "ratio_mort": (V_mort_total_tr / V_cyl_totale * 100) if V_cyl_totale > 0 else 0 
+    }
+
+    constriction = find_constriction(x_stator_full, y_stator_full, x_rotor_full, y_rotor_full)
+    
+    stats = {
+        "m_actuel": N,
+        "lambda_d": d_t / e,
+        "lambda_r": R_p / e, 
+        "lambda_e": 1.0,     
+        "rho_carac": e,
+        "A_star": A_min / (e**2) if e else 0
+    }
+
+    param_res = {
+        "ld_vs_d_x": [], "astar_d_y": [],
+        "le_vs_e_x": [], "astar_e_y": [],
+        "lr_vs_m_x": [], "m_vals_x": [], "astar_m_y": []
+    }
+
+    d_values = np.linspace(max(0.5, d_t * 0.5), d_t * 1.5, 6)
+    for d_val in d_values:
+        a_star = calculer_A_star_trochoide(N, R_p, d_val, rho_env, sm)
+        param_res["ld_vs_d_x"].append(d_val / e)
+        param_res["astar_d_y"].append(a_star if a_star else np.nan)
+
+    e_values = np.linspace(max(0.5, e * 0.5), e * 1.5, 6)
+    for e_val in e_values:
+        R_val = e_val * N
+        a_star = calculer_A_star_trochoide(N, R_val, d_t, rho_env, sm)
+        param_res["le_vs_e_x"].append(e_val / e)
+        param_res["astar_e_y"].append(a_star if a_star else np.nan)
+
+    m_values = np.arange(max(3, N - 2), N + 3)
+    for m_val in m_values:
+        a_star = calculer_A_star_trochoide(m_val, R_p, d_t, rho_env, sm) 
+        e_temp = R_p / m_val
+        param_res["lr_vs_m_x"].append(R_p / e_temp)
         param_res["m_vals_x"].append(m_val)
         param_res["astar_m_y"].append(a_star if a_star else np.nan)
 

@@ -45,7 +45,7 @@ class GeorotorApp(ctk.CTk):
         self.onglet_analyse = self.onglets.add("Analyse")
 
         # ==========================================
-        # ONGLET 1 : CONCEPTION (Inchangé)
+        # ONGLET 1 : CONCEPTION 
         # ==========================================
         self.onglet_conception.grid_columnconfigure(0, weight=0)
         self.onglet_conception.grid_columnconfigure(1, weight=1)
@@ -110,7 +110,7 @@ class GeorotorApp(ctk.CTk):
         ctk.CTkButton(ribbon, text="Exporter Volume (STEP)", fg_color="#2b7b46", hover_color="#1e5c33", command=self.action_exporter_step).pack(side="left", padx=10, pady=10)
 
         # ==========================================
-        # ONGLET 2 : ANALYSE (Refonte avec Sous-menus)
+        # ONGLET 2 : ANALYSE 
         # ==========================================
         # Top Bar Analyse (Choix de la vue)
         top_bar_ana = ctk.CTkFrame(self.onglet_analyse, height=50)
@@ -126,7 +126,7 @@ class GeorotorApp(ctk.CTk):
         self.container_analyse = ctk.CTkFrame(self.onglet_analyse, fg_color="transparent")
         self.container_analyse.pack(expand=True, fill="both", padx=10, pady=10)
 
-        # --- VUE 1 : GÉOMÉTRIE ET ADIMENSIONNELS (L'ancienne vue) ---
+        # --- VUE 1 : GÉOMÉTRIE ET ADIMENSIONNELS ---
         self.frame_ana_geo = ctk.CTkFrame(self.container_analyse, fg_color="transparent")
         self.frame_ana_geo.grid_columnconfigure(0, weight=1)
         self.frame_ana_geo.grid_columnconfigure(1, weight=2)
@@ -150,7 +150,7 @@ class GeorotorApp(ctk.CTk):
 
         f_adims = ctk.CTkFrame(frame_dashboard_geo, corner_radius=8, fg_color="#1e1e1e")
         f_adims.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-        ctk.CTkLabel(f_adims, text="📊 Adimensionnels", font=("Arial", 13, "bold")).pack(pady=(10, 5))
+        ctk.CTkLabel(f_adims, text="Adimensionnels", font=("Arial", 13, "bold")).pack(pady=(10, 5))
         self.lbl_lambda_d = ctk.CTkLabel(f_adims, text="λ_d : --"); self.lbl_lambda_d.pack(anchor="w", padx=15)
         self.lbl_lambda_r = ctk.CTkLabel(f_adims, text="λ_r : --"); self.lbl_lambda_r.pack(anchor="w", padx=15)
         self.lbl_lambda_e = ctk.CTkLabel(f_adims, text="λ_e : --"); self.lbl_lambda_e.pack(anchor="w", padx=15)
@@ -158,14 +158,14 @@ class GeorotorApp(ctk.CTk):
 
         f_meca = ctk.CTkFrame(frame_dashboard_geo, corner_radius=8, fg_color="#1e1e1e")
         f_meca.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
-        ctk.CTkLabel(f_meca, text="🔧 Mécanique", font=("Arial", 13, "bold")).pack(pady=(10, 5))
+        ctk.CTkLabel(f_meca, text="Mécanique", font=("Arial", 13, "bold")).pack(pady=(10, 5))
         self.lbl_jeu = ctk.CTkLabel(f_meca, text="Jeu min. : -- mm"); self.lbl_jeu.pack(anchor="w", padx=15)
         self.lbl_rho_s = ctk.CTkLabel(f_meca, text="ρs (Stat) : -- mm"); self.lbl_rho_s.pack(anchor="w", padx=15)
         self.lbl_rho_r = ctk.CTkLabel(f_meca, text="ρr (Rot) : -- mm"); self.lbl_rho_r.pack(anchor="w", padx=15, pady=(0,10))
         
         f_interactif = ctk.CTkFrame(frame_dashboard_geo, corner_radius=8, fg_color="#1e1e1e")
         f_interactif.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
-        ctk.CTkLabel(f_interactif, text="📈 Étude Interactive", font=("Arial", 13, "bold")).pack(pady=(10, 5))
+        ctk.CTkLabel(f_interactif, text="Étude Interactive", font=("Arial", 13, "bold")).pack(pady=(10, 5))
         self.choix_param_var = ctk.StringVar(value="A* vs λ_d")
         ctk.CTkOptionMenu(f_interactif, variable=self.choix_param_var, values=["A* vs λ_d", "A* vs λ_e", "A* vs λ_r", "A* vs m"], command=self.changer_graphique_parametrique).pack(padx=10, pady=10)
 
@@ -181,25 +181,38 @@ class GeorotorApp(ctk.CTk):
         self.canvas_ana_geo = FigureCanvasTkAgg(self.fig_ana_geo, master=frame_grille_geo)
         self.canvas_ana_geo.get_tk_widget().pack(expand=True, fill="both", padx=5, pady=5)
 
-        # --- VUE 2 : VOLUMES ET HYDRAULIQUE (Nouvelle vue) ---
+        # --- VUE 2 : VOLUMES ET HYDRAULIQUE ---
         self.frame_ana_vol = ctk.CTkFrame(self.container_analyse, fg_color="transparent")
         self.frame_ana_vol.grid_columnconfigure(0, weight=1)
-        self.frame_ana_vol.grid_rowconfigure(0, weight=0)
-        self.frame_ana_vol.grid_rowconfigure(1, weight=1)
+        self.frame_ana_vol.grid_rowconfigure(0, weight=0) # Barre de contrôle vitesse
+        self.frame_ana_vol.grid_rowconfigure(1, weight=0) # KPI
+        self.frame_ana_vol.grid_rowconfigure(2, weight=1) # Graphiques
 
-        # KPI Dashboard (Haut)
+        # --- NOUVEAU : Barre de réglage de la vitesse intégrée à l'analyse ---
+        frame_ctrl_vol = ctk.CTkFrame(self.frame_ana_vol, height=45)
+        frame_ctrl_vol.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        
+        ctk.CTkLabel(frame_ctrl_vol, text="Conditions d'exploitation :", font=("Arial", 12, "bold"), text_color="gray").pack(side="left", padx=15, pady=10)
+        ctk.CTkLabel(frame_ctrl_vol, text="Vitesse de rotation :", font=("Arial", 12)).pack(side="left", padx=(10, 5))
+        
+        self.spinbox_rpm_analyse = CTkSpinbox(frame_ctrl_vol, step_size=100, width=120, command=self.executer_analyse)
+        self.spinbox_rpm_analyse.set(1500)
+        self.spinbox_rpm_analyse.pack(side="left", padx=5)
+        ctk.CTkLabel(frame_ctrl_vol, text="RPM (tr/min)", font=("Arial", 11, "italic"), text_color="gray").pack(side="left", padx=5)
+
+        # KPI Dashboard
         self.frame_kpi_vol = ctk.CTkFrame(self.frame_ana_vol, fg_color="transparent")
-        self.frame_kpi_vol.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.frame_kpi_vol.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         self.frame_kpi_vol.grid_columnconfigure((0,1,2,3), weight=1)
 
         self.kpi_cyl = self.creer_carte_kpi(self.frame_kpi_vol, "Cylindrée Totale", "--", "cm³/tr", 0)
         self.kpi_qth = self.creer_carte_kpi(self.frame_kpi_vol, "Débit Théorique", "--", "L/min", 1)
-        self.kpi_vmort = self.creer_carte_kpi(self.frame_kpi_vol, "Volume Mort (Recirculé)", "--", "cm³/tr", 2)
+        self.kpi_vmort = self.creer_carte_kpi(self.frame_kpi_vol, "Volume Mort", "--", "cm³/tr", 2)
         self.kpi_qrecirc = self.creer_carte_kpi(self.frame_kpi_vol, "Débit de Recirculation", "--", "L/min", 3)
 
         # Graphiques Volumes (Bas)
         frame_grille_vol = ctk.CTkFrame(self.frame_ana_vol, fg_color="white", corner_radius=10)
-        frame_grille_vol.grid(row=1, column=0, sticky="nsew")
+        frame_grille_vol.grid(row=2, column=0, sticky="nsew")
         self.fig_ana_vol = Figure(figsize=(10, 5), dpi=100, facecolor='#ffffff')
         self.fig_ana_vol.subplots_adjust(wspace=0.3, left=0.1, right=0.9, top=0.85, bottom=0.15)
         self.ax_vol_bar = self.fig_ana_vol.add_subplot(121)
@@ -207,7 +220,6 @@ class GeorotorApp(ctk.CTk):
         self.canvas_ana_vol = FigureCanvasTkAgg(self.fig_ana_vol, master=frame_grille_vol)
         self.canvas_ana_vol.get_tk_widget().pack(expand=True, fill="both", padx=10, pady=10)
 
-        # Par défaut, on affiche la vue Géo
         self.frame_ana_geo.pack(expand=True, fill="both")
 
     def creer_carte_kpi(self, parent, titre, valeur, unite, col):
@@ -245,6 +257,7 @@ class GeorotorApp(ctk.CTk):
         elif methode_nom == "Hybride":
             self.spinbox_pts.set(2000)
 
+        # CONFIGS_BASE : Retrait de "N_rpm" de l'onglet Conception (déplacé dans l'analyse)
         configs_base = {
             "Hybride": [
                 ("Géométrie", [
@@ -252,12 +265,17 @@ class GeorotorApp(ctk.CTk):
                     ("R_prim", "R. Générateur (R)", 15.0, 0.5), 
                     ("d_param", "Paramètre (d)", 2.5, 0.1),
                     ("h_epaisseur", "Hauteur (h)", 20.0, 1.0)
-                ]),
-                ("Fonctionnement", [
-                    ("N_rpm", "Vitesse (RPM)", 1500, 100) 
                 ])
             ],
-            "Trochoïde": [("Géométrie", [("N_lobes", "Dents Stator (N)", 7, 1), ("R_prim", "R. Primitif (R)", 22.0, 0.1), ("d_traceur", "Dist. traceur (d)", 2.75, 0.1), ("rho_env", "Enveloppe (\u03C1)", 6.5, 0.1)])],
+            "Trochoïde": [
+                ("Géométrie", [
+                    ("N_lobes", "Dents Stator (N)", 7, 1), 
+                    ("R_prim", "R. Primitif (R)", 20, 0.1), 
+                    ("d_traceur", "Dist. traceur (d)", 2.5, 0.1), 
+                    ("rho_env", "Enveloppe (\u03C1)", 3, 0.1),
+                    ("h_epaisseur", "Hauteur (h)", 20.0, 1.0) # Ajouté ici !
+                ])
+            ],
             "Paramétrique": [("Globaux", [("N_lobes", "Nb de cavités", 5, 1), ("R_prim", "Rayon primitif", 13.0, 0.5), ("R_ext", "Rayon extérieur", 10.0, 0.5), ("phi_deg", "Angle (°)", 0.0, 5.0)])]
         }
 
@@ -315,7 +333,10 @@ class GeorotorApp(ctk.CTk):
             elif methode == "Trochoïde":
                 N = self.inputs['N_lobes'].get(); R_p = self.inputs['R_prim'].get()
                 d_t = self.inputs['d_traceur'].get(); rho_env = self.inputs['rho_env'].get()
-                X, Y, X_gen, Y_gen = modeles.modele_trochoide(N, R_p, d_t, rho_env, pts, sm)
+                
+                # Récupère maintenant Stator et Rotor directement !
+                X, Y, X_rotor, Y_rotor = modeles.modele_trochoide(N, R_p, d_t, rho_env, pts, sm)
+                X_gen, Y_gen = None, None 
                 self.parametres_actifs = {"Mode": f"Trochoïde - {sm}", "Lobes": N, "R_prim": R_p, "Dist. Traceur": d_t, "Rho": rho_env}
             
             elif methode == "Paramétrique":
@@ -353,11 +374,22 @@ class GeorotorApp(ctk.CTk):
                     self.ax_schema.plot(e_val, 0, 'bo', markersize=4)
                     self.ax_schema.plot([0, e_val], [0, 0], 'g--', lw=1.5, label=f"e = {e_val:.3f}")
                 else:
-                    e_val = float(self.inputs.get('e_excent', ctk.StringVar(value="0")).get()) if 'e_excent' in self.inputs else 0.0
+                    # Ajout du calcul dynamique de l'excentricité pour les Trochoïdes
+                   
+                    # Ajout du calcul dynamique de l'excentricité pour les Trochoïdes
+                    if methode == "Trochoïde":
+                        e_val = self.inputs['R_prim'].get() / int(self.inputs['N_lobes'].get())
+                    else:
+                        e_val = float(self.inputs.get('e_excent', ctk.StringVar(value="0")).get()) if 'e_excent' in self.inputs else 0.0
+                        
                     self.ax_profil.plot(X_rotor + e_val, Y_rotor, color='blue', lw=2, label="Rotor")
                     self.ax_profil.fill(X_rotor + e_val, Y_rotor, color='blue', alpha=0.15)
                     self.ax_profil.plot(e_val, 0, 'bo', markersize=4)
                     self.ax_profil.plot([0, e_val], [0, 0], 'g--', lw=1.5, label=f"e = {e_val:.3f}")
+                    
+                    self.ax_schema.plot(X_rotor + e_val, Y_rotor, color='blue', alpha=0.3)
+                    self.ax_schema.plot(e_val, 0, 'bo', markersize=4)
+                    self.ax_schema.plot([0, e_val], [0, 0], 'g--', lw=1.5)
 
             self.ax_profil.axis('equal'); self.ax_profil.grid(True, linestyle=':', alpha=0.6)
             self.ax_profil.legend(loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=3, frameon=False, fontsize=10)
@@ -381,27 +413,40 @@ class GeorotorApp(ctk.CTk):
 
     def executer_analyse(self):
         methode = self.methode_var.get()
-        if methode != "Hybride":
+        # On autorise désormais l'analyse Hybride ET Trochoïde
+        if methode not in ["Hybride", "Trochoïde"]:
             self.reinitialiser_onglet_analyse()
             return
             
         try:
-            m_val = int(self.inputs['N_lobes'].get())
-            R_val = self.inputs['R_prim'].get()
-            d_val = self.inputs['d_param'].get()
             h_val = self.inputs['h_epaisseur'].get() if 'h_epaisseur' in self.inputs else 20.0
-            n_rpm_val = int(self.inputs['N_rpm'].get()) if 'N_rpm' in self.inputs else 1500
+            n_rpm_val = int(self.spinbox_rpm_analyse.get())
             
-            e_calc = R_val / m_val 
-            
-            res = analyses.lancer_analyse_hybride(m_val, e_calc, d_val, h_val, n_rpm_val)
+            if methode == "Hybride":
+                m_val = int(self.inputs['N_lobes'].get())
+                R_val = self.inputs['R_prim'].get()
+                d_val = self.inputs['d_param'].get()
+                e_calc = R_val / m_val 
+                
+                res = analyses.lancer_analyse_hybride(m_val, e_calc, d_val, h_val, n_rpm_val)
+                
+            elif methode == "Trochoïde":
+                N_val = int(self.inputs['N_lobes'].get())
+                R_val = self.inputs['R_prim'].get()
+                d_val = self.inputs['d_traceur'].get()
+                rho_val = self.inputs['rho_env'].get()
+                sm = self.sous_mode_var.get() # Hypocycloïde ou Épitrochoïde
+                
+                # Appel à la nouvelle fonction
+                res = analyses.lancer_analyse_trochoide(N_val, R_val, d_val, rho_val, sm, h_val, n_rpm_val)
+
             self.res_analyse_actuel = res
             self.mettre_a_jour_onglet_analyse(res)
             
         except Exception as e:
             print(f"Erreur Analyse: {e}")
+            import traceback
             traceback.print_exc()
-            # On affiche l'erreur dans le tableau au lieu de tout effacer
             self.tree_analyse.insert("", "end", values=("ERREUR", str(e)[:20], "", "", ""))
 
     # ==========================================
@@ -506,11 +551,11 @@ class GeorotorApp(ctk.CTk):
         self.ax_vol_bar.set_ylabel("Aire ($mm^2$)")
         self.ax_vol_bar.legend(loc="lower right")
 
-        # Graphique Camembert : Répartition du volume d'une chambre (Refoulé vs Mort)
+        # Graphique Camembert : Répartition du volume d'une chambre
         tailles = [pertes['V_max_ch'] - pertes['V_min_ch'], pertes['V_min_ch']]
         etiquettes = ['Volume Refoulé (Cylindrée)', 'Volume Mort (Recirculé)']
         couleurs = ['#2ca02c', '#d62728']
-        explode = (0, 0.1) # Fait ressortir le volume mort
+        explode = (0, 0.1)
         
         self.ax_vol_pie.pie(tailles, explode=explode, labels=etiquettes, colors=couleurs, autopct='%1.1f%%', shadow=False, startangle=140)
         self.ax_vol_pie.set_title(f"Répartition par chambre", fontweight='bold')

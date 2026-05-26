@@ -72,66 +72,130 @@ def modele_hybride(N_lobes, R_prim, d_param, nb_points):
 # ==========================================
 # 2. MÉTHODE TROCHOÏDE 
 # ==========================================
+# ==========================================
+# 2. MÉTHODE TROCHOÏDE (Sweep & Binning Polaire)
+# ==========================================
+# ==========================================
+# 2. MÉTHODE TROCHOÏDE (Cinématique Conjuguée Exacte)
+# ==========================================
+# ==========================================
+# 2. MÉTHODE TROCHOÏDE (Cinématique Épi/Hypo Unifiée)
+# ==========================================
+# ==========================================
+# 2. MÉTHODE TROCHOÏDE (Cinématique Épi/Hypo Unifiée)
+# ==========================================
 def modele_trochoide(N_lobes, R_prim, d_traceur, rho_enveloppe, nb_points, type_trochoide="Hypocycloïde"):
-    K = 1 if type_trochoide == "Épitrochoïde" else -1
-    rho_calc = K * abs(rho_enveloppe)
-    n1 = int(N_lobes)
-    n2 = n1 + K
+    N = int(N_lobes)
+    theta = np.linspace(0, 2 * np.pi, int(nb_points))
+    e = R_prim / N  # Excentricité cinématique universelle
     
-    a = R_prim * (n2 / n1) 
-    phi1 = np.linspace(0, 2 * np.pi * n2, int(nb_points))
-    
-    x_t = a * np.sin(phi1 / n2) - K * d_traceur * np.sin(K * phi1)
-    y_t = a * np.cos(phi1 / n2) - K * d_traceur * np.cos(K * phi1)
-    
-    dx_dphi = (a / n2) * np.cos(phi1 / n2) - d_traceur * np.cos(K * phi1)
-    dy_dphi = -(a / n2) * np.sin(phi1 / n2) + d_traceur * np.sin(K * phi1)
-    
-    mag = np.hypot(dx_dphi, dy_dphi)
-    mag_safe = np.where(mag < 1e-10, 1e-10, mag)
-    
-    n_x = dy_dphi / mag_safe
-    n_y = -dx_dphi / mag_safe
-    
-    x_env_brut = x_t + rho_calc * n_x
-    y_env_brut = y_t + rho_calc * n_y
-    
-    dist_consecutifs = np.hypot(np.diff(x_env_brut), np.diff(y_env_brut))
-    seuil_saut = abs(rho_calc) * 0.2
-    
-    sauts = np.where(dist_consecutifs > seuil_saut)[0]
-    
-    if len(sauts) > 0:
-        x_env_lisse, y_env_lisse = [], []
-        idx_prec = 0
+    if type_trochoide == "Épitrochoïde":
+        # --- CAS ÉPITROCHOÏDE (Maître = Rotor interne, Esclave = Stator externe) ---
+        x_rotor = (R_prim + e) * np.cos(theta) - d_traceur * np.cos((N + 1) * theta)
+        y_rotor = (R_prim + e) * np.sin(theta) - d_traceur * np.sin((N + 1) * theta)
         
-        for i in sauts:
-            x_env_lisse.extend(x_env_brut[idx_prec:i+1])
-            y_env_lisse.extend(y_env_brut[idx_prec:i+1])
+        if rho_enveloppe != 0:
+            dx = np.gradient(x_rotor)
+            dy = np.gradient(y_rotor)
+            mag = np.hypot(dx, dy)
+            mag[mag < 1e-10] = 1e-10
+            x_rotor += rho_enveloppe * (dy / mag)
+            y_rotor -= rho_enveloppe * (dx / mag)
             
-            angle_avant = np.arctan2(n_y[i], n_x[i])
-            angle_apres = np.arctan2(n_y[i+1], n_x[i+1])
+        alphas = np.linspace(0, 2 * np.pi * N, max(1500, int(nb_points)))
+        all_x, all_y = [], []
+        for alpha in alphas:
+            cx = e * np.cos(alpha)
+            cy = e * np.sin(alpha)
+            beta = -alpha / N
             
-            delta = angle_apres - angle_avant
-            delta = (delta + np.pi) % (2 * np.pi) - np.pi
+            xr = cx + x_rotor * np.cos(beta) - y_rotor * np.sin(beta)
+            yr = cy + x_rotor * np.sin(beta) + y_rotor * np.cos(beta)
+            all_x.append(xr)
+            all_y.append(yr)
             
-            if K == 1:
-                signe = 1 if delta >= 0 else -1
-                delta = delta - signe * 2 * np.pi
-            
-            angles_arc = angle_avant + np.linspace(0, delta, 30)
-            
-            x_env_lisse.extend(x_t[i] + rho_calc * np.cos(angles_arc))
-            y_env_lisse.extend(y_t[i] + rho_calc * np.sin(angles_arc))
-            
-            idx_prec = i + 1
-            
-        x_env_lisse.extend(x_env_brut[idx_prec:])
-        y_env_lisse.extend(y_env_brut[idx_prec:])
+        all_x = np.concatenate(all_x)
+        all_y = np.concatenate(all_y)
         
-        return np.array(x_env_lisse), np.array(y_env_lisse), x_t, y_t
-    
-    return x_env_brut, y_env_brut, x_t, y_t
+        angles = np.arctan2(all_y, all_x)
+        radii = np.sqrt(all_x**2 + all_y**2)
+        bins = np.linspace(-np.pi, np.pi, int(nb_points))
+        bin_centers = (bins[:-1] + bins[1:]) / 2
+        stator_r = np.zeros_like(bin_centers)
+        
+        bin_indices = np.digitize(angles, bins) - 1
+        valid = (bin_indices >= 0) & (bin_indices < len(stator_r))
+        np.maximum.at(stator_r, bin_indices[valid], radii[valid])
+        
+        x_stator = stator_r * np.cos(bin_centers)
+        y_stator = stator_r * np.sin(bin_centers)
+        x_stator = np.append(x_stator, x_stator[0])
+        y_stator = np.append(y_stator, y_stator[0])
+        
+        return x_stator, y_stator, x_rotor, y_rotor
+
+    else:
+        # --- CAS HYPOCYCLOÏDE (Maître = Stator externe, Esclave = Rotor interne) ---
+        x_stator = (R_prim - e) * np.cos(theta) + d_traceur * np.cos((N - 1) * theta)
+        y_stator = (R_prim - e) * np.sin(theta) - d_traceur * np.sin((N - 1) * theta)
+        
+        if rho_enveloppe != 0:
+            dx = np.gradient(x_stator)
+            dy = np.gradient(y_stator)
+            mag = np.hypot(dx, dy)
+            mag[mag < 1e-10] = 1e-10
+            x_stator += rho_enveloppe * (dy / mag)
+            y_stator -= rho_enveloppe * (dx / mag)
+            
+        N_r = max(1, N - 1)
+        alphas = np.linspace(0, 2 * np.pi * N_r, max(1500, int(nb_points)))
+        all_x, all_y = [], []
+        for alpha in alphas:
+            cx = e * np.cos(alpha)
+            cy = e * np.sin(alpha)
+            
+            # ==========================================
+            # LE CORRECTIF EST ICI : AJOUT DU SIGNE MOINS
+            # ==========================================
+            beta = -alpha / N_r  
+            
+            dx_p = x_stator - cx
+            dy_p = y_stator - cy
+            
+            # Matrice de rotation inverse
+            xr = dx_p * np.cos(beta) + dy_p * np.sin(beta)
+            yr = -dx_p * np.sin(beta) + dy_p * np.cos(beta)
+            
+            all_x.append(xr)
+            all_y.append(yr)
+            
+        all_x = np.concatenate(all_x)
+        all_y = np.concatenate(all_y)
+        
+        angles = np.arctan2(all_y, all_x)
+        radii = np.sqrt(all_x**2 + all_y**2)
+        bins = np.linspace(-np.pi, np.pi, int(nb_points))
+        bin_centers = (bins[:-1] + bins[1:]) / 2
+        
+        rotor_r = np.full_like(bin_centers, np.max(radii))
+        bin_indices = np.digitize(angles, bins) - 1
+        valid = (bin_indices >= 0) & (bin_indices < len(rotor_r))
+        np.minimum.at(rotor_r, bin_indices[valid], radii[valid])
+        
+        # Lissage des micro-marches de discrétisation polaire
+        kernel_size = 5
+        kernel = np.ones(kernel_size) / kernel_size
+        rotor_r = np.convolve(np.pad(rotor_r, (kernel_size//2, kernel_size//2), mode='wrap'), kernel, mode='valid')
+        
+        x_rotor = rotor_r * np.cos(bin_centers)
+        y_rotor = rotor_r * np.sin(bin_centers)
+        x_rotor = np.append(x_rotor, x_rotor[0])
+        y_rotor = np.append(y_rotor, y_rotor[0])
+        
+        x_stator = np.append(x_stator, x_stator[0])
+        y_stator = np.append(y_stator, y_stator[0])
+        
+        return x_stator, y_stator, x_rotor, y_rotor
 
 # ==========================================
 # 3. MÉTHODE PARAMÉTRIQUE
